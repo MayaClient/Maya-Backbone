@@ -5,8 +5,6 @@ import java.lang.annotation.RetentionPolicy;
 
 @Retention(RetentionPolicy.RUNTIME)
 public @interface MayaModule {
-	boolean firstLoad() default false;
-	
 	String ID() default "";
 	String name() default "";
 	String description() default "";

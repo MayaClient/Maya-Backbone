@@ -6,22 +6,23 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import com.codingforcookies.mayabackbone.src.MayaClient;
-import com.codingforcookies.mayaclientapi.src.RenderLoading;
 
-public class ModuleLoader {
+public class ModuleLoadHandler {
 	public File moduleFolder = new File(MayaClient.mayaDirectory, "modules");
-	public HashMap<String, Module> modules = new HashMap<String, Module>();
 	
-	public ModuleLoader() {
+	private JavaModuleLoader javaModuleLoader;
+	
+	public ModuleLoadHandler() {
 		if(!moduleFolder.exists() && !moduleFolder.mkdirs())
 			System.err.println("Failed to create " + moduleFolder.getAbsolutePath());
+		
+		javaModuleLoader = new JavaModuleLoader();
 	}
 	
 	/**
@@ -29,9 +30,6 @@ public class ModuleLoader {
 	 * @return
 	 */
 	public List<Module> loadFirst() {
-		RenderLoading.complete = false;
-		RenderLoading.process = "Loading Modules";
-		
 		System.out.println("Loading modules...");
 		try {
 			List<File> possibleFiles = new ArrayList<File>();
@@ -43,9 +41,9 @@ public class ModuleLoader {
 				possibleFiles.add(file);
 			}
 			
-			System.out.println("  Found " + possibleFiles.size() + " possible module" + (possibleFiles.size() != 1 ? "s" : "") + ".");
+			System.out.println("Found " + possibleFiles.size() + " possible module" + (possibleFiles.size() != 1 ? "s" : "") + ".");
 			
-			List<Module> modulesFirstLoad = new ArrayList<Module>();
+			Module[] modulesFirstLoad = new Module[100];
 			List<Module> modules = new ArrayList<Module>();
 			
 			for(File possibleFile : possibleFiles) {
@@ -63,27 +61,37 @@ public class ModuleLoader {
 							failed = false;
 							
 							String main = readStream(file.getInputStream(entry));
-							Module module = new Module(possibleFile, main);
-							if(module.firstLoad)
-								modulesFirstLoad.add(module);
-							else
+							Module module = new Module();
+							module.moduleFile = possibleFile;
+							module.moduleClass = main.trim();
+							
+							if(main.contains(":")) {
+								module.moduleClass = main.split(":")[1].trim();
+								modulesFirstLoad[Integer.parseInt(main.split(":")[0])] = module;
+							}else
 								modules.add(module);
 							break;
 						}
 						
 						if(failed)
-							System.out.println("  Invalid module. Offending file is " + file.getName() + ".");
+							System.out.println("Invalid module. Offending file is " + file.getName() + ".");
 					}
 				}
 
 				file.close();
 			}
 			
-			System.out.println("  Preparing to load " + modules.size() + " module" + (modules.size() != 1 ? "s" : "") + (modulesFirstLoad.size() != 0 ? " and " + modulesFirstLoad.size() + " required modules" : "") + "...");
+			List<Module> firstLoadModules = new ArrayList<Module>();
+			for(Module module : modulesFirstLoad)
+				if(module != null)
+					firstLoadModules.add(module);
 			
-			for(Module module : modulesFirstLoad) {
-				module.load();
-				this.modules.put(module.name, module);
+			System.out.println("Preparing to load " + modules.size() + " module" + (modules.size() != 1 ? "s" : "") + (firstLoadModules.size() != 0 ? " and " + firstLoadModules.size()+ " required modules" : "") + "...");
+			
+			for(Module module : firstLoadModules) {
+				Module mod = javaModuleLoader.loadModule(module);
+				MayaClient.modules.put(mod.ID, mod);
+				System.out.println("Loaded " + mod.name);
 			}
 			
 			return modules;
@@ -97,20 +105,19 @@ public class ModuleLoader {
 	public void load(List<Module> modules) {
 		try {
 			for(Module module : modules) {
-				module.load();
-				this.modules.put(module.name, module);
+				Module mod = javaModuleLoader.loadModule(module);
+				MayaClient.modules.put(mod.ID, mod);
+				System.out.println("Loaded " + mod.name);
 			}
 		} catch(Exception e) {
 			e.printStackTrace();
 		}
-		
-		RenderLoading.complete = true;
 	}
-
+	
 	public void unload() {
-		for(Entry<String, Module> module : modules.entrySet()) {
-			modules.remove(module.getKey());
-			module.getValue().unload();
+		for(Entry<String, Module> module : MayaClient.modules.entrySet()) {
+			module.getValue().onUnload();
+			MayaClient.modules.remove(module.getKey());
 		}
 	}
 
